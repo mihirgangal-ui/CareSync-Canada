@@ -8,9 +8,8 @@ import pandas as pd
 ACCESS_CODE = "care"
 DATA_FILE = "family_data.json"
 
-# --- BULLETPROOF DATA PERSISTENCE ---
+# --- DATA PERSISTENCE ---
 def load_data():
-    # Includes 'calendar' key for the new editable feature
     default_data = {"meds": [], "notes": [], "status_reports": [], "alerts": [], "docs": [], "calendar": []}
     if not os.path.exists(DATA_FILE):
         return default_data
@@ -36,16 +35,10 @@ if "authenticated" not in st.session_state:
 if "role" not in st.session_state:
     st.session_state.role = None
 
-# --- LOGIN & ONBOARDING ---
+# --- LOGIN GATE ---
 if not st.session_state.authenticated:
     st.title("🛡️ CareSync Canada")
-    st.markdown("""
-    ### **Family Care Management System**
-    * 💊 **Medication Manager:** Full schedule tracking with edit/delete.
-    * 📅 **Editable Calendar:** Manage appointments and care visits.
-    * 👵 **Senior Empowerment:** Senior-led health reporting and SOS.
-    * 📂 **Document Vault:** Secure records for the whole care team.
-    """)
+    st.markdown("### **Family Care Management System**")
     entry_code = st.text_input("Enter Access Code (Hint: care):", type="password")
     if st.button("Access Dashboard"):
         if entry_code == ACCESS_CODE:
@@ -73,10 +66,57 @@ else:
         else:
             page = "Senior View"
 
+        # --- PAGE: DASHBOARD (The Data-Rich Version) ---
+        if page == "Dashboard":
+            st.title("📋 Care Command Centre")
+            
+            # Top Row: Summary Metrics
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Active Meds", len(data["meds"]))
+            m2.metric("Scheduled Events", len(data["calendar"]))
+            m3.metric("Vault Documents", len(data["docs"]))
+            
+            st.markdown("---")
+            
+            # Second Row: Detailed Summaries
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                st.subheader("💊 Recent Med Schedule")
+                if data["meds"]:
+                    df_meds = pd.DataFrame(data["meds"]).tail(5)
+                    st.table(df_meds[['name', 'freq']])
+                else:
+                    st.info("No medications logged.")
+                
+                st.subheader("📊 Latest Health Status")
+                if data["status_reports"]:
+                    last_status = data["status_reports"][-1]
+                    st.success(f"Senior's last reported mood: **{last_status['mood']}**")
+                    st.caption(f"Logged at: {last_status['time']}")
+                else:
+                    st.info("No status reports yet.")
+
+            with col_b:
+                st.subheader("📅 Upcoming Agenda")
+                if data["calendar"]:
+                    df_cal = pd.DataFrame(data["calendar"]).sort_values(by='date').head(5)
+                    for _, row in df_cal.iterrows():
+                        st.write(f"🗓 **{row['date']}** | {row['time']} - {row['event']}")
+                else:
+                    st.info("Calendar is clear.")
+
+                st.subheader("🚨 Recent Alerts")
+                if data["alerts"]:
+                    for alert in reversed(data["alerts"][-3:]):
+                        st.warning(f"{alert['type']} at {alert['time']}")
+                else:
+                    st.write("No alerts recorded.")
+
         # --- CAREGIVER: MEDICATION MANAGER ---
-        if page == "Medication Manager":
+        elif page == "Medication Manager":
             st.title("💊 Medication Management")
-            with st.expander("➕ Add New Medication"):
+            with st.expander("➕ Add New Medication", expanded=True):
                 with st.form("med_form"):
                     m_name = st.text_input("Medication Name")
                     m_freq = st.selectbox("Frequency", ["Once daily", "Twice daily", "Three times daily", "As needed"])
@@ -99,31 +139,25 @@ else:
             st.title("📅 Care Calendar")
             with st.expander("➕ Add Appointment/Task"):
                 with st.form("cal_form"):
-                    t_desc = st.text_input("Event Description (e.g., Dentist)")
+                    t_desc = st.text_input("Event Description")
                     t_date = st.date_input("Date")
                     t_time = st.time_input("Time")
                     if st.form_submit_button("Add to Calendar"):
                         data["calendar"].append({"event": t_desc, "date": str(t_date), "time": str(t_time)})
                         save_data(data); st.rerun()
             
-            st.subheader("Scheduled Events")
             if data["calendar"]:
-                # Sort by date
-                sorted_cal = sorted(data["calendar"], key=lambda x: x['date'])
-                for i, event in enumerate(sorted_cal):
+                for i, event in enumerate(data["calendar"]):
                     c = st.columns([4, 2, 2, 1])
                     c[0].write(f"📌 {event['event']}")
                     c[1].write(event['date'])
                     c[2].write(event['time'])
                     if c[3].button("🗑️", key=f"cal_{i}"):
-                        data["calendar"].remove(event); save_data(data); st.rerun()
-            else: st.info("No events scheduled.")
+                        data["calendar"].pop(i); save_data(data); st.rerun()
 
-        # --- SENIOR VIEW: HEALTH & HELP ---
+        # --- SENIOR VIEW ---
         elif page == "Senior View":
             st.title("👵 Welcome Back!")
-            
-            # Health Status moved here per your suggestion
             st.subheader("How are you feeling right now?")
             mood = st.select_slider("My Energy Level:", options=["Very Low", "Low", "Ok", "Good", "Excellent"])
             if st.button("Save My Status"):
@@ -134,20 +168,14 @@ else:
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("🚨 I NEED HELP", use_container_width=True, type="primary"):
-                    data["alerts"].append({"time": str(datetime.now()), "type": "SENIOR HELP REQUEST"})
+                    data["alerts"].append({"time": datetime.now().strftime("%H:%M"), "type": "SENIOR HELP REQUEST"})
                     save_data(data); st.error("Emergency Alert Sent!")
             with col2:
                 if st.button("💊 I TOOK MY MEDS", use_container_width=True):
-                    data["alerts"].append({"time": str(datetime.now()), "type": "Senior confirmed meds"})
+                    data["alerts"].append({"time": datetime.now().strftime("%H:%M"), "type": "Senior confirmed meds"})
                     save_data(data); st.success("Great job!")
 
         # --- OTHER PAGES ---
-        elif page == "Dashboard":
-            st.title("📋 Care Overview")
-            st.metric("Appointments", len(data["calendar"]))
-            if data["status_reports"]:
-                st.info(f"Senior's Last Reported Mood: {data['status_reports'][-1]['mood']}")
-        
         elif page == "Document Vault":
             st.title("📂 Document Vault")
             up = st.file_uploader("Upload Record")
