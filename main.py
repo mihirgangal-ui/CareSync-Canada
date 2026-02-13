@@ -35,30 +35,48 @@ if "authenticated" not in st.session_state:
 if "role" not in st.session_state:
     st.session_state.role = None
 
-# --- LOGIN GATE ---
+# --- LOGIN GATE (WITH BLURB) ---
 if not st.session_state.authenticated:
     st.title("🛡️ CareSync Canada")
-    st.markdown("### **Family Care Management System**")
+    
+    st.markdown("""
+    ### **Welcome to the Family Care Prototype**
+    CareSync Canada is a dual-interface dashboard designed to bridge the gap between seniors and their care teams.
+    
+    **This prototype demonstrates:**
+    * 🩺 **Caregiver Command Centre:** Comprehensive tracking for meds, mood, and coordination.
+    * 👵 **Senior Empowerment View:** A high-contrast, simplified interface for elder users.
+    * 📅 **Dynamic Management:** Editable care calendars and medical document storage.
+    * 🚨 **Integrated Safety:** Instant SOS logging and emergency alerts.
+    
+    ---
+    *This is a live portfolio demonstration. Please use the access code below to enter.*
+    """)
+    
     entry_code = st.text_input("Enter Access Code (Hint: care):", type="password")
+    
     if st.button("Access Dashboard"):
         if entry_code == ACCESS_CODE:
             st.session_state.authenticated = True
             st.rerun()
+        else:
+            st.error("Incorrect code. Please use 'care'.")
 else:
     data = load_data()
     
     if st.session_state.role is None:
         st.header("Select Interface")
+        st.write("Choose a view to explore the dashboard's functionality:")
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("👵 SENIOR VIEW", use_container_width=True):
+            if st.button("👵 SENIOR VIEW (Simplified)", use_container_width=True):
                 st.session_state.role = "Senior"; st.rerun()
         with col2:
-            if st.button("🩺 CAREGIVER VIEW", use_container_width=True):
+            if st.button("🩺 CAREGIVER VIEW (Full Suite)", use_container_width=True):
                 st.session_state.role = "Caregiver"; st.rerun()
     
     else:
-        # --- SIDEBAR NAV ---
+        # --- SIDEBAR NAVIGATION ---
         if st.session_state.role == "Caregiver":
             st.sidebar.title("🩺 Caregiver Tools")
             page = st.sidebar.radio("Navigate to:", 
@@ -66,36 +84,31 @@ else:
         else:
             page = "Senior View"
 
-        # --- PAGE: DASHBOARD (The Data-Rich Version) ---
+        # --- PAGE: DASHBOARD ---
         if page == "Dashboard":
             st.title("📋 Care Command Centre")
             
-            # Top Row: Summary Metrics
+            # Metrics Row
             m1, m2, m3 = st.columns(3)
-            m1.metric("Active Meds", len(data["meds"]))
-            m2.metric("Scheduled Events", len(data["calendar"]))
+            m1.metric("Active Medications", len(data["meds"]))
+            m2.metric("Calendar Events", len(data["calendar"]))
             m3.metric("Vault Documents", len(data["docs"]))
             
             st.markdown("---")
             
-            # Second Row: Detailed Summaries
             col_a, col_b = st.columns(2)
-            
             with col_a:
-                st.subheader("💊 Recent Med Schedule")
+                st.subheader("💊 Medication Overview")
                 if data["meds"]:
-                    df_meds = pd.DataFrame(data["meds"]).tail(5)
-                    st.table(df_meds[['name', 'freq']])
-                else:
-                    st.info("No medications logged.")
+                    st.table(pd.DataFrame(data["meds"]).tail(5)[['name', 'freq']])
+                else: st.info("No meds logged.")
                 
-                st.subheader("📊 Latest Health Status")
+                st.subheader("📊 Last Senior Status")
                 if data["status_reports"]:
-                    last_status = data["status_reports"][-1]
-                    st.success(f"Senior's last reported mood: **{last_status['mood']}**")
-                    st.caption(f"Logged at: {last_status['time']}")
-                else:
-                    st.info("No status reports yet.")
+                    last = data["status_reports"][-1]
+                    st.success(f"Reported Mood: **{last['mood']}**")
+                    st.caption(f"Logged at: {last['time']}")
+                else: st.info("No health reports yet.")
 
             with col_b:
                 st.subheader("📅 Upcoming Agenda")
@@ -103,17 +116,15 @@ else:
                     df_cal = pd.DataFrame(data["calendar"]).sort_values(by='date').head(5)
                     for _, row in df_cal.iterrows():
                         st.write(f"🗓 **{row['date']}** | {row['time']} - {row['event']}")
-                else:
-                    st.info("Calendar is clear.")
+                else: st.info("Calendar is empty.")
 
                 st.subheader("🚨 Recent Alerts")
                 if data["alerts"]:
                     for alert in reversed(data["alerts"][-3:]):
                         st.warning(f"{alert['type']} at {alert['time']}")
-                else:
-                    st.write("No alerts recorded.")
+                else: st.write("No recent alerts.")
 
-        # --- CAREGIVER: MEDICATION MANAGER ---
+        # --- PAGE: MEDICATION MANAGER ---
         elif page == "Medication Manager":
             st.title("💊 Medication Management")
             with st.expander("➕ Add New Medication", expanded=True):
@@ -134,7 +145,7 @@ else:
                     if c[3].button("🗑️", key=f"med_{i}"):
                         data["meds"].pop(i); save_data(data); st.rerun()
 
-        # --- CAREGIVER: EDITABLE CALENDAR ---
+        # --- PAGE: EDITABLE CALENDAR ---
         elif page == "Editable Calendar":
             st.title("📅 Care Calendar")
             with st.expander("➕ Add Appointment/Task"):
@@ -155,7 +166,7 @@ else:
                     if c[3].button("🗑️", key=f"cal_{i}"):
                         data["calendar"].pop(i); save_data(data); st.rerun()
 
-        # --- SENIOR VIEW ---
+        # --- PAGE: SENIOR VIEW ---
         elif page == "Senior View":
             st.title("👵 Welcome Back!")
             st.subheader("How are you feeling right now?")
@@ -186,12 +197,14 @@ else:
 
         elif page == "Coordination Notes":
             st.title("📝 Team Notes")
-            n = st.text_area("Update:")
-            if st.button("Post"):
-                data["notes"].append({"note": n, "time": datetime.now().strftime("%H:%M")})
-                save_data(data); st.rerun()
+            n = st.text_area("Update for next shift:")
+            if st.button("Post Note"):
+                if n:
+                    data["notes"].append({"note": n, "time": datetime.now().strftime("%H:%M")})
+                    save_data(data); st.rerun()
             for note in reversed(data["notes"]): st.info(f"{note['time']}: {note['note']}")
 
+        # Footer
         st.sidebar.markdown("---")
         if st.sidebar.button("Logout / Switch View"):
             st.session_state.role = None
