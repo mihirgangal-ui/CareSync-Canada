@@ -1,54 +1,26 @@
 import streamlit as st
 import json
 import os
-import smtplib
-from email.mime.text import MIMEText
 from datetime import datetime
 import pandas as pd
 
-# --- CONFIG & SECRETS ---
+# --- CONFIG ---
 ACCESS_CODE = "care"
-
-# Using st.secrets for safety. If not set, app will show a warning instead of crashing.
-def get_secret(key):
-    return st.secrets.get(key, "Not Configured")
-
-# --- DATA PERSISTENCE ---
 DATA_FILE = "family_data.json"
 
+# --- DATA PERSISTENCE ---
 def load_data():
     if not os.path.exists(DATA_FILE):
         return {"events": [], "meds": [], "notes": [], "status_reports": [], "alerts": []}
-    with open(DATA_FILE, "r") as f:
-        return json.load(f)
+    try:
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"events": [], "meds": [], "notes": [], "status_reports": [], "alerts": []}
 
 def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
-
-# --- EMAIL LOGIC ---
-def send_sos_email():
-    sender = get_secret("EMAIL_SENDER")
-    password = get_secret("EMAIL_PASSWORD")
-    receiver = get_secret("EMAIL_RECEIVER")
-
-    if "Not Configured" in [sender, password, receiver]:
-        st.error("Email secrets are not configured in Streamlit Settings.")
-        return False
-
-    try:
-        msg = MIMEText(f"🚨 SOS ALERT: Assistance requested via CareSync Canada at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.")
-        msg['Subject'] = "🚨 CareSync SOS Emergency"
-        msg['From'] = sender
-        msg['To'] = receiver
-
-        with smtplib.SMTP_SSL('smtp.gmail.com', 456) as server:
-            server.login(sender, password)
-            server.sendmail(sender, receiver, msg.as_string())
-        return True
-    except Exception as e:
-        st.error(f"Failed to send email: {e}")
-        return False
 
 # --- UI SETUP ---
 st.set_page_config(page_title="CareSync Canada", page_icon="🛡️", layout="wide")
@@ -59,9 +31,8 @@ if "authenticated" not in st.session_state:
 
 if not st.session_state.authenticated:
     st.title("🛡️ CareSync Canada")
-    st.info("Welcome to the Portfolio Demo. Please use the access code provided in the LinkedIn description.")
+    st.info("Welcome to the Portfolio Demo.")
     
-    # Use the 'hint' suggestion to make it recruiter-friendly
     entry_code = st.text_input("Enter Access Code (Hint: care):", type="password")
     
     if st.button("Access Dashboard"):
@@ -69,7 +40,7 @@ if not st.session_state.authenticated:
             st.session_state.authenticated = True
             st.rerun()
         else:
-            st.error("Incorrect code. Please check the 'care' password.")
+            st.error("Incorrect code. Please use 'care'.")
 else:
     # --- MAIN APP ---
     data = load_data()
@@ -82,16 +53,16 @@ else:
         st.session_state.authenticated = False
         st.rerun()
 
-    # --- SOS BUTTON (Always Visible in Sidebar) ---
+    # --- SOS BUTTON (Demo Mode) ---
     st.sidebar.markdown("---")
     st.sidebar.subheader("🚨 Emergency")
     if st.sidebar.button("SEND SOS ALERT"):
-        with st.spinner("Notifying Caregivers..."):
-            if send_sos_email():
-                st.sidebar.success("SOS Sent to Team!")
-                # Log the alert in the data
-                data["alerts"].append({"time": str(datetime.now()), "type": "SOS Button Pressed"})
-                save_data(data)
+        # In Demo Mode, we just log it locally instead of sending an actual email
+        alert_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        data["alerts"].append({"time": alert_time, "type": "SOS Button Pressed"})
+        save_data(data)
+        st.sidebar.success(f"SOS Logged at {alert_time}!")
+        st.sidebar.caption("Note: Email notifications are disabled in this demo version.")
 
     # --- PAGE: DASHBOARD ---
     if page == "Dashboard":
@@ -101,7 +72,8 @@ else:
         with col1:
             st.subheader("Recent Meds")
             if data["meds"]:
-                st.table(pd.DataFrame(data["meds"]).tail(3))
+                df_meds = pd.DataFrame(data["meds"])
+                st.table(df_meds.tail(3))
             else:
                 st.write("No meds logged yet.")
 
@@ -111,6 +83,8 @@ else:
                 last_report = data["status_reports"][-1]
                 st.metric("Patient Mood", last_report["mood"])
                 st.write(f"Updated: {last_report['time']}")
+            else:
+                st.write("No status reports yet.")
 
     # --- PAGE: MEDICATION TRACKER ---
     elif page == "Medication Tracker":
@@ -119,11 +93,12 @@ else:
             name = st.text_input("Medication Name")
             dosage = st.text_input("Dosage")
             if st.form_submit_button("Log Dose"):
-                data["meds"].append({"name": name, "dosage": dosage, "time": str(datetime.now())})
+                data["meds"].append({"name": name, "dosage": dosage, "time": datetime.now().strftime('%Y-%m-%d %H:%M')})
                 save_data(data)
                 st.success(f"Logged {name}")
         
-        st.dataframe(pd.DataFrame(data["meds"]))
+        if data["meds"]:
+            st.dataframe(pd.DataFrame(data["meds"]))
 
     # --- PAGE: STATUS REPORTS ---
     elif page == "Status Reports":
@@ -131,7 +106,7 @@ else:
         mood = st.select_slider("Patient Mood/Energy", options=["Low", "Fair", "Good", "Excellent"])
         appetite = st.checkbox("Ate full meals?")
         if st.button("Submit Report"):
-            data["status_reports"].append({"mood": mood, "appetite": appetite, "time": str(datetime.now())})
+            data["status_reports"].append({"mood": mood, "appetite": appetite, "time": datetime.now().strftime('%Y-%m-%d %H:%M')})
             save_data(data)
             st.success("Report saved.")
 
@@ -140,9 +115,10 @@ else:
         st.title("📝 Care Coordination Notes")
         new_note = st.text_area("Add a note for the next shift:")
         if st.button("Post Note"):
-            data["notes"].append({"note": new_note, "time": str(datetime.now())})
-            save_data(data)
-            st.experimental_rerun()
+            if new_note:
+                data["notes"].append({"note": new_note, "time": datetime.now().strftime('%Y-%m-%d %H:%M')})
+                save_data(data)
+                st.rerun()
         
         for note in reversed(data["notes"]):
             st.info(f"{note['time']}: {note['note']}")
