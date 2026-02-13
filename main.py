@@ -1,200 +1,148 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime, time, date
-import pytz
 import json
 import os
+import smtplib
+from email.mime.text import MIMEText
+from datetime import datetime
+import pandas as pd
 
-# --- 1. CONFIG & SYSTEM SETUP ---
-ADMIN_PASSWORD = "care"
-DB_FILE = "family_data.json"
-VAULT_DIR = "care_vault"
-LOCAL_TZ = pytz.timezone("America/Toronto") 
+# --- CONFIG & SECRETS ---
+ACCESS_CODE = "care"
 
-if not os.path.exists(VAULT_DIR): os.makedirs(VAULT_DIR)
+# Using st.secrets for safety. If not set, app will show a warning instead of crashing.
+def get_secret(key):
+    return st.secrets.get(key, "Not Configured")
 
-def get_now(): return datetime.now(LOCAL_TZ)
+# --- DATA PERSISTENCE ---
+DATA_FILE = "family_data.json"
 
-def load_db():
-    schema = {"events": [], "meds": [], "notes": [], "status_reports": [], "alerts": []}
-    if not os.path.exists(DB_FILE): return schema
-    try:
-        with open(DB_FILE, "r") as f:
-            data = json.load(f)
-            for key in schema:
-                if key not in data: data[key] = []
-            return data
-    except: return schema
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        return {"events": [], "meds": [], "notes": [], "status_reports": [], "alerts": []}
+    with open(DATA_FILE, "r") as f:
+        return json.load(f)
 
-def save_db(data):
-    with open(DB_FILE, "w") as f:
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-db = load_db()
+# --- EMAIL LOGIC ---
+def send_sos_email():
+    sender = get_secret("EMAIL_SENDER")
+    password = get_secret("EMAIL_PASSWORD")
+    receiver = get_secret("EMAIL_RECEIVER")
 
-# --- 2. LOGIC ENGINE ---
-def get_precision_alerts():
-    alerts = []
-    now = get_now()
-    cur_t, today_d, today_s = now.strftime("%H:%M"), now.date(), now.strftime("%Y-%m-%d")
-    prescriptions = [m for m in db['meds'] if m.get('type') == 'SCHEDULE']
-    logs = [m for m in db['meds'] if m.get('type') == 'LOG']
+    if "Not Configured" in [sender, password, receiver]:
+        st.error("Email secrets are not configured in Streamlit Settings.")
+        return False
 
-    for p in prescriptions:
-        det = p['details']
-        start = datetime.strptime(det['start'], "%Y-%m-%d").date()
-        end = datetime.strptime(det['end'], "%Y-%m-%d").date()
-        if start <= today_d <= end:
-            for slot in det.get('slots', []):
-                if cur_t > slot:
-                    taken = any(l['name'] == det['name'] and l['time'].startswith(today_s) and 
-                                abs((datetime.strptime(slot, "%H:%M") - datetime.strptime(l['time'][11:16], "%H:%M")).total_seconds()) < 7200 for l in logs)
-                    if not taken: alerts.append({"name": det['name'], "slot": slot})
-    return alerts
+    try:
+        msg = MIMEText(f"🚨 SOS ALERT: Assistance requested via CareSync Canada at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.")
+        msg['Subject'] = "🚨 CareSync SOS Emergency"
+        msg['From'] = sender
+        msg['To'] = receiver
 
-# --- 3. LOGIN & NAVIGATION ---
-if 'auth' not in st.session_state: st.session_state.auth = False
-if not st.session_state.auth:
+        with smtplib.SMTP_SSL('smtp.gmail.com', 456) as server:
+            server.login(sender, password)
+            server.sendmail(sender, receiver, msg.as_string())
+        return True
+    except Exception as e:
+        st.error(f"Failed to send email: {e}")
+        return False
+
+# --- UI SETUP ---
+st.set_page_config(page_title="CareSync Canada", page_icon="🛡️", layout="wide")
+
+# --- LOGIN GATE ---
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
     st.title("🛡️ CareSync Canada")
-    pwd = st.text_input("Access Code:", type="password")
-    if st.button("Unlock Dashboard"):
-        if pwd == ADMIN_PASSWORD: st.session_state.auth = True; st.rerun()
-    st.stop()
-
-st.set_page_config(page_title="CareSync v3.5", layout="wide")
-
-# --- 4. SIDEBAR (RESET RESTORED) ---
-with st.sidebar:
-    st.title("🛡️ CareSync")
-    role = st.selectbox("Role:", ["Caregiver", "Senior"], key="sb_role")
-    nav = st.radio("Menu:", ["Dashboard", "Calendar", "Med Center", "Document Vault"] if role=="Caregiver" else ["Senior Portal"])
-    st.divider()
-    if st.button("Logout", key="logout"): st.session_state.auth = False; st.rerun()
-
-    # FACTORY RESET RESTORED
-    if st.button("🗑️ Factory Reset", key="reset_btn"):
-        save_db({"events":[], "meds":[], "notes":[], "status_reports":[], "alerts":[]})
-        st.warning("Database Cleared.")
+    st.info("Welcome to the Portfolio Demo. Please use the access code provided in the LinkedIn description.")
+    
+    # Use the 'hint' suggestion to make it recruiter-friendly
+    entry_code = st.text_input("Enter Access Code (Hint: care):", type="password")
+    
+    if st.button("Access Dashboard"):
+        if entry_code == ACCESS_CODE:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Incorrect code. Please check the 'care' password.")
+else:
+    # --- MAIN APP ---
+    data = load_data()
+    
+    # Sidebar Navigation
+    st.sidebar.title("🛡️ CareSync Menu")
+    page = st.sidebar.radio("Navigate to:", ["Dashboard", "Medication Tracker", "Status Reports", "Family Notes"])
+    
+    if st.sidebar.button("Logout"):
+        st.session_state.authenticated = False
         st.rerun()
 
-# --- 5. GLOBAL SOS ---
-if role == "Caregiver":
-    for a in [item for item in db['alerts'] if not item.get('resolved')]:
-        st.error(f"🚨 **SOS: {a.get('user')} ({a.get('time')})**")
-        if st.button(f"Resolve Alert {a.get('id')}", key=f"sos_{a.get('id')}"):
-            for item in db['alerts']:
-                if item.get('id') == a.get('id'): item['resolved'] = True
-            save_db(db); st.rerun()
+    # --- SOS BUTTON (Always Visible in Sidebar) ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🚨 Emergency")
+    if st.sidebar.button("SEND SOS ALERT"):
+        with st.spinner("Notifying Caregivers..."):
+            if send_sos_email():
+                st.sidebar.success("SOS Sent to Team!")
+                # Log the alert in the data
+                data["alerts"].append({"time": str(datetime.now()), "type": "SOS Button Pressed"})
+                save_data(data)
 
-# --- 6. SENIOR PORTAL ---
-if nav == "Senior Portal":
-    st.title("Hi Mom & Dad! 👋")
-    c1, c2, c3 = st.columns(3)
-    ts = get_now().strftime("%Y-%m-%d %H:%M")
-    if c1.button("😊 I'm Great", use_container_width=True): db['status_reports'].append({"status":"Great","time":ts,"color":"green"}); save_db(db); st.success("Notified!")
-    if c2.button("😐 Just Okay", use_container_width=True): db['status_reports'].append({"status":"Okay","time":ts,"color":"orange"}); save_db(db); st.info("Logged.")
-    if c3.button("🆘 NEED HELP", use_container_width=True): 
-        db['alerts'].append({"id":str(int(get_now().timestamp())),"user":"Mom/Dad","time":ts,"resolved":False})
-        db['status_reports'].append({"status":"EMERGENCY","time":ts,"color":"red"}); save_db(db); st.error("SOS SENT!")
+    # --- PAGE: DASHBOARD ---
+    if page == "Dashboard":
+        st.title("📋 Caregiving Overview")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Recent Meds")
+            if data["meds"]:
+                st.table(pd.DataFrame(data["meds"]).tail(3))
+            else:
+                st.write("No meds logged yet.")
 
-# --- 7. CAREGIVER: DASHBOARD ---
-elif nav == "Dashboard":
-    st.title("Care Overview")
-    st.subheader("📊 Well-being Tracker")
-    for s in reversed(db['status_reports'][-3:]):
-        if s['color'] == "green": st.success(f"😊 {s['status']} ({s['time']})")
-        elif s['color'] == "orange": st.warning(f"😐 {s['status']} ({s['time']})")
-        else: st.error(f"🆘 {s['status']} ({s['time']})")
-    st.divider()
-    st.subheader("💊 Med Adherence")
-    missed = get_precision_alerts()
-    if not missed: st.success("All meds on schedule.")
-    else:
-        for m in missed: st.error(f"**MISSING:** {m['name']} at {m['slot']}")
-    st.divider()
-    l, r = st.columns(2)
-    with l:
-        st.subheader("💬 Notice Board")
-        for n in db['notes'][-3:]: st.info(f"**{n['name']}**: {n['content']}")
-        note = st.text_input("New Note", key="n_in")
-        if st.button("Post Note", key="n_btn"): db['notes'].append({"name":user,"content":note,"time":get_now().strftime("%H:%M")}); save_db(db); st.rerun()
-    with r:
-        st.subheader("📅 Today")
-        tasks = [e for e in db['events'] if e.get('Date') == get_now().strftime("%Y-%m-%d")]
-        if not tasks: st.write("No events.")
-        for i, t in enumerate(tasks): st.checkbox(f"{t['Time']} - {t['Event']}", key=f"t_{i}")
+        with col2:
+            st.subheader("Latest Status")
+            if data["status_reports"]:
+                last_report = data["status_reports"][-1]
+                st.metric("Patient Mood", last_report["mood"])
+                st.write(f"Updated: {last_report['time']}")
 
-# --- 8. MED CENTER (SMART EDIT) ---
-elif nav == "Med Center":
-    st.title("Medication Management")
-    t1, t2, t3 = st.tabs(["💊 Log Dose", "➕ Manage Schedule", "📜 History"])
-
-    with t1:
-        active = [m['details']['name'] for m in db['meds'] if m.get('type') == 'SCHEDULE']
-        if active:
-            target = st.selectbox("Log Dose:", active)
-            if st.button("Record Dose Taken"):
-                db['meds'].append({"type":"LOG","name":target,"time":get_now().strftime("%Y-%m-%d %H:%M"),"by":user})
-                save_db(db); st.balloons(); st.rerun()
-
-    with t2:
-        st.subheader("Add or Update Medication")
-        all_m = [m for m in db['meds'] if m.get('type') == 'SCHEDULE']
-        med_names = ["-- New Medication --"] + [m['details']['name'] for m in all_m]
-        selection = st.selectbox("Select Med to Edit:", med_names, key="edit_selector")
-
-        # Load existing data if editing
-        existing_data = next((m['details'] for m in all_m if m['details']['name'] == selection), None)
-
+    # --- PAGE: MEDICATION TRACKER ---
+    elif page == "Medication Tracker":
+        st.title("💊 Medication Adherence")
         with st.form("med_form"):
-            name = st.text_input("Medication Name", value=existing_data['name'] if existing_data else "")
-            sd = st.date_input("Start Date", datetime.strptime(existing_data['start'], "%Y-%m-%d") if existing_data else get_now())
-            ed = st.date_input("End Date", datetime.strptime(existing_data['end'], "%Y-%m-%d") if existing_data else get_now().replace(year=get_now().year+1))
-            s1, s2, s3 = st.columns(3)
-            # Default times if no data exists
-            v1 = s1.time_input("T1", datetime.strptime(existing_data['slots'][0], "%H:%M").time() if existing_data and len(existing_data['slots'])>0 else time(8,0))
-            v2 = s2.time_input("T2", datetime.strptime(existing_data['slots'][1], "%H:%M").time() if existing_data and len(existing_data['slots'])>1 else time(13,0))
-            v3 = s3.time_input("T3", datetime.strptime(existing_data['slots'][2], "%H:%M").time() if existing_data and len(existing_data['slots'])>2 else time(18,0))
-            freq = st.radio("Doses/Day", [1, 2, 3], index=(len(existing_data['slots'])-1) if existing_data else 0, horizontal=True)
+            name = st.text_input("Medication Name")
+            dosage = st.text_input("Dosage")
+            if st.form_submit_button("Log Dose"):
+                data["meds"].append({"name": name, "dosage": dosage, "time": str(datetime.now())})
+                save_data(data)
+                st.success(f"Logged {name}")
+        
+        st.dataframe(pd.DataFrame(data["meds"]))
 
-            if st.form_submit_button("Save Changes"):
-                slots = [v1.strftime("%H:%M"), v2.strftime("%H:%M"), v3.strftime("%H:%M")][:freq]
-                new_entry = {"type": "SCHEDULE", "details": {"name": name, "slots": slots, "start": str(sd), "end": str(ed)}}
+    # --- PAGE: STATUS REPORTS ---
+    elif page == "Status Reports":
+        st.title("📊 Daily Status")
+        mood = st.select_slider("Patient Mood/Energy", options=["Low", "Fair", "Good", "Excellent"])
+        appetite = st.checkbox("Ate full meals?")
+        if st.button("Submit Report"):
+            data["status_reports"].append({"mood": mood, "appetite": appetite, "time": str(datetime.now())})
+            save_data(data)
+            st.success("Report saved.")
 
-                # UPDATE LOGIC: If editing, remove old record before adding updated one
-                if existing_data:
-                    db['meds'] = [m for m in db['meds'] if not (m.get('type') == 'SCHEDULE' and m['details']['name'] == selection)]
-
-                db['meds'].append(new_entry)
-                save_db(db); st.success("Schedule Updated!"); st.rerun()
-
-        if existing_data:
-            if st.button("🗑️ Delete Medication", key="del_m"):
-                db['meds'] = [m for m in db['meds'] if not (m.get('type') == 'SCHEDULE' and m['details']['name'] == selection)]
-                save_db(db); st.rerun()
-
-    with t3:
-        logs = [m for m in db['meds'] if m.get('type') == 'LOG']
-        if logs: st.dataframe(pd.DataFrame(logs)[['name', 'time', 'by']], use_container_width=True)
-
-# --- 9. CALENDAR & VAULT ---
-elif nav == "Calendar":
-    st.title("Calendar")
-    with st.form("cal"):
-        en, ed, et = st.text_input("Event"), st.date_input("Date"), st.time_input("Time")
-        if st.form_submit_button("Add Event"):
-            db['events'].append({"Event": en, "Date": str(ed), "Time": et.strftime("%I:%M %p")})
-            save_db(db); st.rerun()
-    if db['events']: st.table(pd.DataFrame(db['events']).sort_values(by="Date"))
-
-elif nav == "Document Vault":
-    st.title("📂 Vault")
-    up = st.file_uploader("Upload Record", type=['pdf', 'jpg', 'png'], key="v_up")
-    if up:
-        with open(os.path.join(VAULT_DIR, up.name), "wb") as f: f.write(up.getbuffer())
-        st.success("Saved.")
-    for f_name in os.listdir(VAULT_DIR):
-        c1, c2 = st.columns([3, 1])
-        c1.write(f"📄 {f_name}")
-        with open(os.path.join(VAULT_DIR, f_name), "rb") as f:
-            c2.download_button("Download", f, file_name=f_name, key=f"dl_{f_name}")
+    # --- PAGE: FAMILY NOTES ---
+    elif page == "Family Notes":
+        st.title("📝 Care Coordination Notes")
+        new_note = st.text_area("Add a note for the next shift:")
+        if st.button("Post Note"):
+            data["notes"].append({"note": new_note, "time": str(datetime.now())})
+            save_data(data)
+            st.experimental_rerun()
+        
+        for note in reversed(data["notes"]):
+            st.info(f"{note['time']}: {note['note']}")
