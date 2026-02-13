@@ -37,7 +37,7 @@ if not st.session_state.authenticated:
     ### **Family Care Management System**
     A central hub for synchronized caregiving.
     * 💊 **Advanced Med Tracking:** Schedule, frequency, and history.
-    * 📂 **Document Vault:** Secure storage for medical PDFs and records.
+    * 📂 **Document Vault:** Secure storage for medical records.
     * 📅 **Care Calendar:** View upcoming appointments and tasks.
     * 👵 **Accessibility:** Specialized 'Senior View' for elder users.
     """)
@@ -49,31 +49,35 @@ if not st.session_state.authenticated:
 else:
     data = load_data()
     
-    # ROLE SELECTION
+    # ROLE SELECTION (The "Onboarding" choice)
     if st.session_state.role is None:
         st.header("Select Interface")
+        st.write("How would you like to explore the prototype?")
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("👵 SENIOR VIEW", use_container_width=True):
+            if st.button("👵 SENIOR VIEW (Simple)", use_container_width=True):
                 st.session_state.role = "Senior"; st.rerun()
         with col2:
-            if st.button("🩺 CAREGIVER VIEW", use_container_width=True):
+            if st.button("🩺 CAREGIVER VIEW (Full Tools)", use_container_width=True):
                 st.session_state.role = "Caregiver"; st.rerun()
     
-    # --- APP NAVIGATION ---
     else:
-        # Sidebar for Caregiver
+        # --- SIDEBAR NAVIGATION (Visible List) ---
         if st.session_state.role == "Caregiver":
-            st.sidebar.title("Caregiver Tools")
-            page = st.sidebar.selectbox("Go to:", ["Dashboard", "Medication Manager", "Document Vault", "Care Calendar", "Daily Status", "Notes"])
+            st.sidebar.title("🩺 Caregiver Tools")
+            # Using radio buttons so all options are always visible
+            page = st.sidebar.radio(
+                "Navigate to:", 
+                ["Dashboard", "Medication Manager", "Document Vault", "Care Calendar", "Daily Status", "Coordination Notes"]
+            )
         else:
-            page = "Senior View" # Senior only sees one page
+            page = "Senior View"
 
-        # --- FEATURE: MEDICATION MANAGER (Caregiver) ---
+        # --- FEATURE: MEDICATION MANAGER ---
         if page == "Medication Manager":
             st.title("💊 Medication Management")
             
-            with st.expander("➕ Add New Medication"):
+            with st.expander("➕ Add New Medication", expanded=True):
                 with st.form("med_form"):
                     m_name = st.text_input("Medication Name")
                     m_freq = st.selectbox("Frequency", ["Once daily", "Twice daily", "Three times daily", "As needed"])
@@ -82,11 +86,10 @@ else:
                     m_end = col_b.date_input("End Date")
                     if st.form_submit_button("Add to Schedule"):
                         data["meds"].append({
-                            "id": len(data["meds"]),
                             "name": m_name, "freq": m_freq, 
                             "start": str(m_start), "end": str(m_end)
                         })
-                        save_data(data); st.success("Medication added!")
+                        save_data(data); st.success(f"{m_name} added!"); st.rerun()
 
             st.subheader("Current Schedule")
             if data["meds"]:
@@ -96,68 +99,77 @@ else:
                     cols[1].write(f"⏱ {m['freq']}")
                     cols[2].write(f"🗓 {m['start']} to {m['end']}")
                     if cols[3].button("🗑️", key=f"del_{i}"):
-                        data["meds"].pop(i)
-                        save_data(data); st.rerun()
+                        data["meds"].pop(i); save_data(data); st.rerun()
             else: st.info("No medications scheduled.")
 
         # --- FEATURE: DOCUMENT VAULT ---
         elif page == "Document Vault":
             st.title("📂 Document Vault")
-            st.info("Demo Mode: Uploading files is simulated. Records are listed below.")
-            uploaded_file = st.file_uploader("Upload Medical PDF/Image")
+            uploaded_file = st.file_uploader("Upload Medical PDF/Image (Simulated)")
             if uploaded_file:
                 data["docs"].append({"name": uploaded_file.name, "date": str(datetime.now().date())})
-                save_data(data); st.success("Document record saved!")
+                save_data(data); st.success("Document metadata saved to vault.")
             
             if data["docs"]:
+                st.write("### Stored Records")
                 st.table(pd.DataFrame(data["docs"]))
 
         # --- FEATURE: CARE CALENDAR ---
         elif page == "Care Calendar":
             st.title("📅 Care Calendar")
-            st.date_input("Select Date to View Tasks")
-            st.write("### Today's Schedule")
-            st.write("- 09:00 AM: Morning Medications")
-            st.write("- 02:00 PM: Physiotherapy Appointment")
+            st.date_input("Select Date")
+            st.info("Today's Agenda")
+            st.markdown("""
+            - **09:00 AM** - Morning Meds (Blood Pressure)
+            - **11:30 AM** - Light Walk in Park
+            - **02:00 PM** - Physiotherapy (Clinic A)
+            - **06:00 PM** - Evening Meds
+            """)
 
         # --- FEATURE: DAILY STATUS ---
         elif page == "Daily Status":
             st.title("📊 Health Status Tracking")
-            st.write("Log how the senior is feeling today to track patterns over time.")
             mood = st.select_slider("Mood/Energy", options=["Very Low", "Low", "Neutral", "Good", "Excellent"])
             pain = st.slider("Pain Level (0-10)", 0, 10, 0)
             if st.button("Save Health Log"):
                 data["status_reports"].append({"mood": mood, "pain": pain, "time": str(datetime.now())})
-                save_data(data); st.success("Status updated.")
+                save_data(data); st.success("Health log updated.")
 
         # --- FEATURE: SENIOR VIEW ---
         elif page == "Senior View":
             st.title("👋 Welcome Back!")
-            st.markdown("### Important for Today:")
+            st.write("### What would you like to do?")
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("🚨 I NEED HELP", use_container_width=True, type="primary"):
-                    st.error("Help alert sent to your family!")
+                    st.error("HELP ALERT LOGGED. Family is being notified.")
             with col2:
                 if st.button("💊 I TOOK MY MEDS", use_container_width=True):
-                    st.success("Thank you! Logged for the family.")
+                    st.success("Great job! We've updated your schedule.")
 
-        # --- SHARED FEATURES ---
+        # --- FEATURE: DASHBOARD ---
         elif page == "Dashboard":
             st.title("📋 Home Dashboard")
-            st.metric("Active Medications", len(data["meds"]))
-            st.write("#### Recent Alerts")
-            if data["alerts"]: st.write(data["alerts"][-1])
-            else: st.write("No alerts today.")
+            m_col, a_col = st.columns(2)
+            m_col.metric("Active Meds", len(data["meds"]))
+            a_col.metric("Unread Notes", len(data["notes"]))
+            
+            st.write("### Recent Activity Feed")
+            if data["notes"]: st.write(f"Latest Note: {data['notes'][-1]['note']}")
+            else: st.write("No recent activity.")
 
-        elif page == "Notes":
+        # --- FEATURE: NOTES ---
+        elif page == "Coordination Notes":
             st.title("📝 Coordination Notes")
-            note = st.text_area("Update for the family:")
+            note = st.text_area("Update for the team:")
             if st.button("Post Note"):
-                data["notes"].append({"note": note, "time": str(datetime.now())})
-                save_data(data); st.rerun()
+                if note:
+                    data["notes"].append({"note": note, "time": datetime.now().strftime("%Y-%m-%d %H:%M")})
+                    save_data(data); st.rerun()
             for n in reversed(data["notes"]): st.info(f"{n['time']}: {n['note']}")
 
-        if st.sidebar.button("Logout/Switch Role"):
+        # --- SYSTEM FOOTER ---
+        st.sidebar.markdown("---")
+        if st.sidebar.button("Logout / Switch Role"):
             st.session_state.role = None
             st.session_state.authenticated = False; st.rerun()
