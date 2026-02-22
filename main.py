@@ -5,191 +5,169 @@ from datetime import datetime, date
 import pandas as pd
 
 # --- CONFIG ---
-DATA_FILE = "family_data.json"
+DATA_FILE = "platform_data.json"
 
-# --- DATA PERSISTENCE (Self-Healing Logic) ---
+# --- DATA PERSISTENCE (Multi-Tenant Logic) ---
 def load_data():
-    # This is the 'Master Schema'
-    default_data = {
-        "meds": [], 
-        "notes": [], 
-        "status_reports": [], 
-        "alerts": [], 
-        "docs": [], 
-        "calendar": [],
-        "settings": {
-            "senior_name": "", 
-            "caregiver_name": "", 
-            "caregiver_email": "", 
-            "user_role": "", 
-            "is_pro": False
-        }
+    default_structure = {
+        "users": {}, # {email: {name, role}}
+        "seniors": {}, # {id: {name, meds:[], calendar:[], notes:[], alerts:[], docs:[], is_pro: False}}
+        "links": {} # {caregiver_email: [senior_ids]}
     }
-    
-    if not os.path.exists(DATA_FILE):
-        return default_data
-    
+    if not os.path.exists(DATA_FILE): return default_structure
     try:
         with open(DATA_FILE, "r") as f:
-            current_data = json.load(f)
-            
-            # CRITICAL: Check for missing top-level keys (Fixes Line 131 KeyError)
-            for key in default_data.keys():
-                if key not in current_data:
-                    current_data[key] = default_data[key]
-            
-            # Ensure settings sub-keys exist
-            for s_key in default_data["settings"].keys():
-                if s_key not in current_data["settings"]:
-                    current_data["settings"][s_key] = default_data["settings"][s_key]
-                    
-            return current_data
-    except:
-        return default_data
+            data = json.load(f)
+            # Self-healing logic for the new schema
+            for key in default_structure.keys():
+                if key not in data: data[key] = default_structure[key]
+            return data
+    except: return default_structure
 
 def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
 # --- UI SETUP ---
-st.set_page_config(page_title="CareSync Canada", page_icon="🛡️", layout="wide")
-data = load_data()
+st.set_page_config(page_title="CareSync Platform", page_icon="🛡️", layout="wide")
+db = load_data()
 
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
+if "session_user" not in st.session_state: st.session_state.session_user = None
+if "active_senior_id" not in st.session_state: st.session_state.active_senior_id = None
 
-# --- 1. LOGIN / SIGNUP ---
-if not st.session_state.authenticated:
-    st.title("🛡️ CareSync Canada")
-    t1, t2 = st.tabs(["🔐 Sign In", "📝 Create Account"])
-    with t1:
-        u_email = st.text_input("Email Address", key="login_email")
-        if st.button("Log In"):
-            if data["settings"]["caregiver_email"] == u_email and u_email != "":
-                st.session_state.authenticated = True
-                st.session_state.role = data["settings"].get("user_role", "Caregiver")
-                st.rerun()
-            else: st.error("Account not found. Please Sign Up.")
-    with t2:
+# --- 1. AUTHENTICATION & ONBOARDING ---
+if not st.session_state.session_user:
+    st.title("🛡️ CareSync Canada: Network Edition")
+    tab1, tab2 = st.tabs(["🔐 Login", "📝 Create Account"])
+    
+    with tab2:
         with st.form("signup"):
-            sn, cn = st.text_input("Senior's Name"), st.text_input("Caregiver Name")
-            ce, ur = st.text_input("Caregiver Email"), st.selectbox("Role", ["Caregiver", "Senior"])
-            if st.form_submit_button("Sign Up"):
-                if sn and cn and ce:
-                    data["settings"] = {"senior_name": sn, "caregiver_name": cn, "caregiver_email": ce, "user_role": ur, "is_pro": False}
-                    save_data(data); st.success("Account created! Now Sign In.")
-                else: st.error("Please fill in all fields.")
+            u_role = st.selectbox("I am a...", ["Caregiver", "Senior"])
+            u_email = st.text_input("Email")
+            u_name = st.text_input("Full Name")
+            if st.form_submit_button("Register"):
+                if u_email and u_name:
+                    db["users"][u_email] = {"name": u_name, "role": u_role}
+                    if u_role == "Caregiver":
+                        db["links"][u_email] = []
+                    else:
+                        s_id = f"S-{u_email.split('@')[0]}" # Unique ID based on email
+                        db["seniors"][s_id] = {
+                            "name": u_name, "meds": [], "calendar": [], 
+                            "notes": [], "alerts": [], "docs": [], "is_pro": False
+                        }
+                    save_data(db); st.success("Registered! Please Log In.")
+                else: st.error("All fields required.")
+
+    with tab1:
+        l_email = st.text_input("Email")
+        if st.button("Log In"):
+            if l_email in db["users"]:
+                st.session_state.session_user = {"email": l_email, **db["users"][l_email]}
+                st.rerun()
+            else: st.error("User not found.")
 
 # --- 2. THE APP INTERIOR ---
 else:
-    s_name = data["settings"]["senior_name"]
-    is_pro = data["settings"].get("is_pro", False)
+    u = st.session_state.session_user
     
-    if st.session_state.role == "Caregiver":
-        st.sidebar.title("🩺 Caregiver Tools")
-        st.sidebar.write("✨ **PRO**" if is_pro else "🆓 **FREE**")
-        page = st.sidebar.radio("Navigate:", ["Dashboard", "Medication Manager", "Care Calendar", "Document Vault", "Notes", "Subscription"])
-    else: 
-        page = "Senior View"
-
-    # --- MEDICATION MANAGER (Advanced) ---
-    if page == "Medication Manager":
-        st.title("💊 Detailed Medication Tracker")
-        with st.expander("➕ Add New Medication", expanded=True):
-            with st.form("med_form", clear_on_submit=True):
-                m_name = st.text_input("Medication Name")
-                m_freq = st.text_input("Frequency (e.g. 2x Daily)")
-                c1, c2 = st.columns(2)
-                m_start = c1.date_input("Start Date", value=date.today())
-                m_end = c2.date_input("End Date", value=date.today())
-                if st.form_submit_button("Save Medication"):
-                    if m_name:
-                        data["meds"].append({
-                            "name": m_name, "freq": m_freq, 
-                            "start": str(m_start), "end": str(m_end)
-                        })
-                        save_data(data); st.rerun()
-                    else: st.error("Medication name is required.")
+    # --- CAREGIVER DASHBOARD (The Roster) ---
+    if u["role"] == "Caregiver":
+        st.sidebar.title(f"👨‍⚕️ {u['name']}")
         
-        if data["meds"]:
-            st.table(pd.DataFrame(data["meds"]))
+        # 1. ADD NEW SENIOR (Caregiver creates a profile)
+        with st.sidebar.expander("➕ Register New Senior"):
+            new_s_name = st.text_input("Senior's Name")
+            if st.button("Create Profile"):
+                new_id = f"S-{datetime.now().strftime('%M%S')}"
+                db["seniors"][new_id] = {
+                    "name": new_s_name, "meds": [], "calendar": [], 
+                    "notes": [], "alerts": [], "docs": [], "is_pro": False
+                }
+                db["links"][u["email"]].append(new_id)
+                save_data(db); st.rerun()
 
-    # --- CARE CALENDAR (With Validation) ---
-    elif page == "Care Calendar":
-        st.title("📅 Care Calendar")
-        with st.form("cal_form", clear_on_submit=True):
-            event_name = st.text_input("Event Description")
-            event_date = st.date_input("Date", value=date.today())
-            if st.form_submit_button("Add Event"):
-                if not event_name.strip():
-                    st.error("⚠️ Event description cannot be blank.")
-                else:
-                    data["calendar"].append({"event": event_name, "date": str(event_date)})
-                    save_data(data); st.success("Added!"); st.rerun()
+        # 2. SELECT FROM ROSTER
+        st.title("📋 My Senior Roster")
+        my_seniors = db["links"].get(u["email"], [])
         
-        for ev in reversed(data["calendar"]):
-            st.info(f"**{ev['date']}**: {ev['event']}")
-
-    # --- DASHBOARD (Fix for Line 131) ---
-    elif page == "Dashboard":
-        st.title(f"📋 {s_name}'s Hub")
-        m1, m2, m3 = st.columns(3)
-        # These now have the repair logic protecting them
-        m1.metric("Meds", len(data.get("meds", [])))
-        m2.metric("Events", len(data.get("calendar", [])))
-        m3.metric("Status", "Pro" if is_pro else "Free")
-        
-        st.markdown("---")
-        if data["alerts"]:
-            st.subheader("🚨 Recent Alerts")
-            for a in reversed(data["alerts"][-3:]): st.warning(f"{a['type']} at {a['time']}")
-
-    # --- SENIOR VIEW ---
-    elif page == "Senior View":
-        st.title(f"👋 Hello {s_name}")
-        mood = st.select_slider("How are you feeling?", options=["Low", "Ok", "Good", "Great"])
-        if st.button("Update Family"):
-            data["status_reports"].append({"mood": mood, "time": datetime.now().strftime("%H:%M")})
-            save_data(data); st.success("Updated!")
-        
-        if st.button("🚨 I NEED HELP", use_container_width=True, type="primary"):
-            data["alerts"].append({"time": datetime.now().strftime("%H:%M"), "type": "SOS Alert"})
-            save_data(data); st.error("Alert Sent!")
-        
-        if st.button("Logout"):
-            st.session_state.authenticated = False; st.rerun()
-
-    # --- REMAINING PAGES ---
-    elif page == "Subscription":
-        st.title("💎 Membership")
-        c1, c2 = st.columns(2)
-        c1.info("Free Tier")
-        with c2:
-            st.success("Pro Tier ($9.99/mo)")
-            if st.button("🚀 UPGRADE" if not is_pro else "DOWNGRADE"):
-                data["settings"]["is_pro"] = not is_pro
-                save_data(data); st.rerun()
-
-    elif page == "Document Vault":
-        st.title("📂 Vault")
-        if not is_pro: st.error("🔒 Pro Feature.")
+        if not my_seniors:
+            st.info("You haven't added any seniors yet. Use the sidebar to begin.")
         else:
-            up = st.file_uploader("Upload")
-            if up:
-                data["docs"].append({"name": up.name, "date": str(date.today())})
-                save_data(data); st.rerun()
-            if data["docs"]: st.table(pd.DataFrame(data["docs"]))
+            cols = st.columns(3)
+            for idx, s_id in enumerate(my_seniors):
+                with cols[idx % 3]:
+                    s_data = db["seniors"][s_id]
+                    st.markdown(f"### {s_data['name']}")
+                    st.write(f"💊 Meds: {len(s_data['meds'])} | 📅 Events: {len(s_data['calendar'])}")
+                    if st.button(f"Manage {s_data['name']}", key=s_id):
+                        st.session_state.active_senior_id = s_id
+                        st.rerun()
 
-    elif page == "Notes":
-        st.title("📝 Notes")
-        nt = st.text_area("Update:")
-        if st.button("Post"):
-            if nt:
-                data["notes"].append({"note": nt, "time": datetime.now().strftime("%H:%M")})
-                save_data(data); st.rerun()
-            else: st.error("Cannot be empty.")
-        for n in reversed(data["notes"]): st.info(n['note'])
+        # 3. MANAGE ACTIVE SENIOR
+        if st.session_state.active_senior_id:
+            s_id = st.session_state.active_senior_id
+            s_data = db["seniors"][s_id]
+            st.markdown("---")
+            st.header(f"📍 Managing: {s_data['name']}")
+            
+            # --- INTEGRATED TOOLS ---
+            t_dash, t_med, t_cal, t_pay = st.tabs(["Summary", "Medications", "Calendar", "Subscription"])
+            
+            with t_dash:
+                m1, m2 = st.columns(2)
+                m1.metric("Current Plan", "PRO" if s_data["is_pro"] else "FREE")
+                m2.metric("SOS History", len(s_data["alerts"]))
+                if s_data["meds"]: st.write("Latest Med:", s_data["meds"][-1]["name"])
 
-    st.sidebar.markdown("---")
+            with t_med:
+                with st.form("med_add", clear_on_submit=True):
+                    n = st.text_input("Med Name")
+                    f = st.text_input("Frequency")
+                    if st.form_submit_button("Save"):
+                        if n:
+                            db["seniors"][s_id]["meds"].append({"name": n, "freq": f, "date": str(date.today())})
+                            save_data(db); st.rerun()
+                st.table(pd.DataFrame(s_data["meds"]))
+
+            with t_cal:
+                with st.form("cal_add"):
+                    ev = st.text_input("Event")
+                    if st.form_submit_button("Add Event"):
+                        if ev.strip():
+                            db["seniors"][s_id]["calendar"].append({"event": ev, "date": str(date.today())})
+                            save_data(db); st.rerun()
+                st.table(pd.DataFrame(s_data["calendar"]))
+
+            with t_pay:
+                st.write("Upgrade this senior's profile to unlock Document Vault.")
+                if st.button("🚀 Upgrade to Pro" if not s_data["is_pro"] else "Revert to Free"):
+                    db["seniors"][s_id]["is_pro"] = not s_data["is_pro"]
+                    save_data(db); st.rerun()
+
+    # --- SENIOR VIEW (Tag a Caregiver) ---
+    else:
+        s_id = f"S-{u['email'].split('@')[0]}"
+        s_data = db["seniors"].get(s_id)
+        
+        st.title(f"👵 Hello {u['name']}")
+        
+        # TAGGING LOGIC
+        with st.expander("🔗 Link to a Caregiver"):
+            c_email = st.text_input("Enter Caregiver's Email")
+            if st.button("Tag Caregiver"):
+                if c_email in db["links"]:
+                    if s_id not in db["links"][c_email]:
+                        db["links"][c_email].append(s_id)
+                        save_data(db); st.success("Link established!")
+                    else: st.warning("Already linked.")
+                else: st.error("Caregiver email not found.")
+
+        if st.button("🚨 SOS", type="primary", use_container_width=True):
+            db["seniors"][s_id]["alerts"].append({"time": str(datetime.now())})
+            save_data(db); st.error("Emergency Alert Logged!")
+
     if st.sidebar.button("Logout"):
-        st.session_state.authenticated = False; st.rerun()
+        st.session_state.session_user = None
+        st.session_state.active_senior_id = None
+        st.rerun()
