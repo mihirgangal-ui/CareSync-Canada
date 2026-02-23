@@ -133,12 +133,44 @@ else:
                 if sdata["calendar"]: st.table(pd.DataFrame(sdata["calendar"]))
 
             with t_pay:
-                st.subheader("Locked Pro Features")
-                st.write("Upgrade this senior to unlock:")
-                st.markdown("* **Document Vault**\n* **Shift Hand-off Notes**\n* **SOS Family Blast**")
-                if st.button("🚀 Upgrade to Pro" if not sdata["is_pro"] else "Revert"):
-                    db["seniors"][sid]["is_pro"] = not sdata["is_pro"]
-                    save_data(db); st.rerun()
+                st.subheader("💎 Premium Care Suite")
+                
+                if not sdata.get("is_pro", False):
+                    st.info("Features below are locked. Upgrade this senior to unlock professional tools.")
+                    st.markdown("🔒 **Document Vault** (DNR, Health Cards)")
+                    st.markdown("🔒 **Caregiver Hand-off Notes**")
+                    if st.button("🚀 Upgrade to Pro", key=f"up_{sid}"):
+                        db["seniors"][sid]["is_pro"] = True
+                        save_data(db); st.rerun()
+                else:
+                    st.success("✅ Pro Features Unlocked")
+                    if st.button("Revert to Free Plan (Demo Mode)"):
+                        db["seniors"][sid]["is_pro"] = False
+                        save_data(db); st.rerun()
+                    
+                    st.divider()
+                    
+                    # --- THE ACTUAL PRO FEATURES ---
+                    col_v, col_n = st.columns(2)
+                    
+                    with col_v:
+                        st.markdown("### 📁 Document Vault")
+                        st.file_uploader("Upload Health Card / DNR (PDF/JPG)", key=f"vault_{sid}")
+                        if sdata.get("docs"):
+                            st.write("Current Docs:", sdata["docs"])
+                        else:
+                            st.caption("No documents uploaded yet.")
+
+                    with col_n:
+                        st.markdown("### 📝 Hand-off Notes")
+                        new_note = st.text_area("Daily Care Log / Hand-over", placeholder="e.g., Mom was a bit dizzy today...")
+                        if st.button("Save Note"):
+                            note_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')}: {new_note}"
+                            db["seniors"][sid]["notes"].insert(0, note_entry) # Newest first
+                            save_data(db); st.rerun()
+                        
+                        for n in sdata.get("notes", []):
+                            st.write(f"▪️ {n}")
 
     # --- SENIOR VIEW ---
     else:
