@@ -194,7 +194,7 @@ with t_pay:
 
     # --- SENIOR VIEW (MANDATORY ALIGNMENT) ---
     # This 'else' MUST be aligned vertically with 'if u["role"] == "Caregiver":'
-    else:
+else:
         sid = f"S-{u['email'].split('@')[0]}"
         if sid in db["seniors"]:
             # (Rest of your senior dashboard code starts here)
