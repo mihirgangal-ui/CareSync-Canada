@@ -132,13 +132,14 @@ else:
                         save_data(db); st.rerun()
                 if sdata["calendar"]: st.table(pd.DataFrame(sdata["calendar"]))
 
-            with t_pay:
+           with t_pay:
                 st.subheader("💎 Premium Care Suite")
                 
                 if not sdata.get("is_pro", False):
                     st.info("Features below are locked. Upgrade this senior to unlock professional tools.")
                     st.markdown("🔒 **Document Vault** (DNR, Health Cards)")
-                    st.markdown("🔒 **Caregiver Hand-off Notes**")
+                    st.markdown("🔒 **Shift Hand-off Notes**")
+                    st.markdown("🔒 **SOS Family Blast & History**")
                     if st.button("🚀 Upgrade to Pro", key=f"up_{sid}"):
                         db["seniors"][sid]["is_pro"] = True
                         save_data(db); st.rerun()
@@ -149,6 +150,36 @@ else:
                         save_data(db); st.rerun()
                     
                     st.divider()
+                    
+                    # --- THE ACTUAL PRO FEATURES ---
+                    col_v, col_n = st.columns(2)
+                    
+                    with col_v:
+                        st.markdown("### 📁 Document Vault")
+                        st.file_uploader("Upload Health Card / DNR (PDF/JPG)", key=f"vault_{sid}")
+                        st.caption("Securely stored in senior's encrypted profile.")
+
+                        st.divider()
+                        st.markdown("### 🚨 SOS Alert History")
+                        if sdata.get("alerts"):
+                            for alert in reversed(sdata["alerts"]):
+                                st.error(f"EMERGENCY ALERT: {alert['time']}")
+                        else:
+                            st.write("No emergency alerts recorded.")
+
+                    with col_n:
+                        st.markdown("### 📝 Hand-off Notes")
+                        with st.container(border=True):
+                            new_note = st.text_area("Daily Care Log / Hand-over", placeholder="e.g., Mom was a bit dizzy today...", key=f"note_input_{sid}")
+                            if st.button("Save Log Entry", key=f"save_note_{sid}"):
+                                if new_note:
+                                    note_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')}: {new_note}"
+                                    if "notes" not in db["seniors"][sid]: db["seniors"][sid]["notes"] = []
+                                    db["seniors"][sid]["notes"].insert(0, note_entry)
+                                    save_data(db); st.rerun()
+                        
+                        for n in sdata.get("notes", []):
+                            st.write(f"▪️ {n}")
                     
                     # --- THE ACTUAL PRO FEATURES ---
                     col_v, col_n = st.columns(2)
