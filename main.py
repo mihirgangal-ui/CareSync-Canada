@@ -135,7 +135,7 @@ else:
 with t_pay:
                 st.subheader("💎 Premium Care Suite")
                 
-                # Check if is_pro exists, default to False if not
+                # Check pro status safely
                 is_pro_active = sdata.get("is_pro", False)
 
                 if not is_pro_active:
@@ -145,12 +145,14 @@ with t_pay:
                     st.markdown("🔒 **SOS Family Blast & History**")
                     if st.button("🚀 Upgrade to Pro", key=f"up_{sid}"):
                         db["seniors"][sid]["is_pro"] = True
-                        save_data(db); st.rerun()
+                        save_data(db)
+                        st.rerun()
                 else:
                     st.success("✅ Pro Features Unlocked")
                     if st.button("Revert to Free Plan (Demo Mode)", key=f"rev_{sid}"):
                         db["seniors"][sid]["is_pro"] = False
-                        save_data(db); st.rerun()
+                        save_data(db)
+                        st.rerun()
                     
                     st.divider()
                     
@@ -158,12 +160,12 @@ with t_pay:
                     
                     with col_v:
                         st.markdown("### 📁 Document Vault")
-                        st.file_uploader("Upload Health Card / DNR (PDF/JPG)", key=f"vault_{sid}")
+                        st.file_uploader("Upload Health Card / DNR (PDF/JPG)", key=f"vault_up_{sid}")
                         st.caption("Securely stored in senior's encrypted profile.")
 
                         st.divider()
                         st.markdown("### 🚨 SOS Alert History")
-                        # Defensive check for alerts
+                        # Safely get alerts list
                         senior_alerts = sdata.get("alerts", [])
                         if senior_alerts:
                             for alert in reversed(senior_alerts):
@@ -173,21 +175,29 @@ with t_pay:
 
                     with col_n:
                         st.markdown("### 📝 Hand-off Notes")
-                        with st.container(border=True):
-                            new_note = st.text_area("Daily Care Log / Hand-over", placeholder="e.g., Mom was a bit dizzy today...", key=f"note_input_{sid}")
-                            if st.button("Save Log Entry", key=f"save_note_{sid}"):
-                                if new_note:
-                                    note_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')}: {new_note}"
-                                    # Defensive initialization of notes list
-                                    if "notes" not in db["seniors"][sid]: 
-                                        db["seniors"][sid]["notes"] = []
-                                    db["seniors"][sid]["notes"].insert(0, note_entry)
-                                    save_data(db); st.rerun()
+                        # Using a unique key for the text area to prevent Streamlit duplicate widget errors
+                        new_note = st.text_area("Daily Care Log", placeholder="Mom was a bit dizzy today...", key=f"txt_{sid}")
+                        if st.button("Save Log Entry", key=f"save_n_{sid}"):
+                            if new_note:
+                                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
+                                note_entry = f"{timestamp}: {new_note}"
+                                # Initialize notes if missing
+                                if "notes" not in db["seniors"][sid]: 
+                                    db["seniors"][sid]["notes"] = []
+                                db["seniors"][sid]["notes"].insert(0, note_entry)
+                                save_data(db)
+                                st.rerun()
                         
-                        # Defensive check for notes
+                        # Display notes safely
                         for n in sdata.get("notes", []):
                             st.write(f"▪️ {n}")
 
+    # --- SENIOR VIEW (MANDATORY ALIGNMENT) ---
+    # This 'else' MUST be aligned vertically with 'if u["role"] == "Caregiver":'
+    else:
+        sid = f"S-{u['email'].split('@')[0]}"
+        if sid in db["seniors"]:
+            # (Rest of your senior dashboard code starts here)
     # --- SENIOR VIEW ---
     else:
         sid = f"S-{u['email'].split('@')[0]}"
