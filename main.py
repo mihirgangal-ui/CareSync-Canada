@@ -62,13 +62,12 @@ else:
     if u["role"] == "Caregiver":
         st.sidebar.title(f"👨‍⚕️ {u['name']}")
         
-        # --- GLOBAL ALERT CENTER (For Caregiver Only) ---
+        # SOS Notifications in Sidebar
         my_seniors = db["links"].get(u["email"], [])
         for sid in my_seniors:
             s_alerts = db["seniors"][sid].get("alerts", [])
             if s_alerts:
-                last_alert = s_alerts[-1]["time"]
-                st.sidebar.error(f"🚨 SOS: {db['seniors'][sid]['name']} at {last_alert}")
+                st.sidebar.error(f"🚨 SOS: {db['seniors'][sid]['name']} @ {s_alerts[-1]['time']}")
 
         with st.sidebar.expander("➕ Add Senior"):
             with st.form("reg_s"):
@@ -98,17 +97,25 @@ else:
             
             with t_med:
                 with st.form("mf"):
-                    n, f = st.text_input("Med Name"), st.text_input("Freq")
+                    n = st.text_input("Medication Name")
+                    f = st.text_input("Frequency (e.g. 2x Daily)")
+                    c1, c2 = st.columns(2)
+                    sd = c1.date_input("Start Date")
+                    ed = c2.date_input("End Date")
                     if st.form_submit_button("Add Med"):
-                        db["seniors"][sid]["meds"].append({"name": n, "freq": f, "taken": False})
+                        db["seniors"][sid]["meds"].append({"name": n, "freq": f, "start": str(sd), "end": str(ed), "taken": False})
                         save_data(db); st.rerun()
                 if sdata["meds"]: st.table(pd.DataFrame(sdata["meds"]))
 
             with t_cal:
                 with st.form("cf"):
-                    e, t = st.text_input("Event"), st.text_input("Time (HH:MM)")
+                    e = st.text_input("Event Name")
+                    l = st.text_input("Location")
+                    c1, c2 = st.columns(2)
+                    d = c1.date_input("Event Date")
+                    t = c2.text_input("Time (HH:MM)")
                     if st.form_submit_button("Add Event"):
-                        db["seniors"][sid]["calendar"].append({"event": e, "time": t, "arrived": False})
+                        db["seniors"][sid]["calendar"].append({"event": e, "date": str(d), "time": t, "loc": l, "arrived": False})
                         save_data(db); st.rerun()
                 if sdata["calendar"]: st.table(pd.DataFrame(sdata["calendar"]))
 
@@ -123,7 +130,7 @@ else:
                     c1, c2 = st.columns(2)
                     with c1:
                         st.write("📁 Document Vault")
-                        st.file_uploader("Upload Health Docs", key=f"v_{sid}")
+                        st.file_uploader("Upload Docs", key=f"v_{sid}")
                     with c2:
                         st.write("📝 Hand-off Notes")
                         note = st.text_area("Log Entry", key=f"n_{sid}")
@@ -131,7 +138,7 @@ else:
                             db["seniors"][sid]["notes"].insert(0, f"{datetime.now().strftime('%H:%M')}: {note}")
                             save_data(db); st.rerun()
 
-    # --- SENIOR VIEW (PATCHED) ---
+    # --- SENIOR VIEW ---
     else:
         sid = f"S-{u['email'].split('@')[0]}"
         if sid in db["seniors"]:
@@ -141,17 +148,19 @@ else:
             with c1:
                 st.subheader("💊 My Meds")
                 for i, m in enumerate(sdata["meds"]):
-                    if st.checkbox(f"{m['name']} ({m['freq']})", value=m["taken"], key=f"sm_{i}"):
+                    label = f"**{m['name']}** ({m['freq']}) \nUntil: {m['end']}"
+                    if st.checkbox(label, value=m["taken"], key=f"sm_{i}"):
                         db["seniors"][sid]["meds"][i]["taken"] = True; save_data(db)
             with c2:
                 st.subheader("📅 My Schedule")
                 for i, e in enumerate(sdata["calendar"]):
-                    if st.checkbox(f"{e['event']} @ {e['time']}", value=e["arrived"], key=f"sc_{i}"):
+                    label = f"**{e['event']}** \n{e['date']} @ {e['time']}"
+                    if st.checkbox(label, value=e["arrived"], key=f"sc_{i}"):
                         db["seniors"][sid]["calendar"][i]["arrived"] = True; save_data(db)
             
             st.divider()
             if st.button("🚨 SOS", type="primary", use_container_width=True):
-                db["seniors"][sid]["alerts"].append({"time": datetime.now().strftime("%H:%M:%S")})
+                db["seniors"][sid]["alerts"].append({"time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
                 save_data(db); st.error("SOS SENT!")
 
     if st.sidebar.button("Logout"):
