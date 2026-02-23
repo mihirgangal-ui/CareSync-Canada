@@ -132,10 +132,13 @@ else:
                         save_data(db); st.rerun()
                 if sdata["calendar"]: st.table(pd.DataFrame(sdata["calendar"]))
 
-           with t_pay:
+with t_pay:
                 st.subheader("💎 Premium Care Suite")
                 
-                if not sdata.get("is_pro", False):
+                # Check if is_pro exists, default to False if not
+                is_pro_active = sdata.get("is_pro", False)
+
+                if not is_pro_active:
                     st.info("Features below are locked. Upgrade this senior to unlock professional tools.")
                     st.markdown("🔒 **Document Vault** (DNR, Health Cards)")
                     st.markdown("🔒 **Shift Hand-off Notes**")
@@ -145,13 +148,12 @@ else:
                         save_data(db); st.rerun()
                 else:
                     st.success("✅ Pro Features Unlocked")
-                    if st.button("Revert to Free Plan (Demo Mode)"):
+                    if st.button("Revert to Free Plan (Demo Mode)", key=f"rev_{sid}"):
                         db["seniors"][sid]["is_pro"] = False
                         save_data(db); st.rerun()
                     
                     st.divider()
                     
-                    # --- THE ACTUAL PRO FEATURES ---
                     col_v, col_n = st.columns(2)
                     
                     with col_v:
@@ -161,9 +163,11 @@ else:
 
                         st.divider()
                         st.markdown("### 🚨 SOS Alert History")
-                        if sdata.get("alerts"):
-                            for alert in reversed(sdata["alerts"]):
-                                st.error(f"EMERGENCY ALERT: {alert['time']}")
+                        # Defensive check for alerts
+                        senior_alerts = sdata.get("alerts", [])
+                        if senior_alerts:
+                            for alert in reversed(senior_alerts):
+                                st.error(f"EMERGENCY ALERT: {alert.get('time', 'Unknown Time')}")
                         else:
                             st.write("No emergency alerts recorded.")
 
@@ -174,32 +178,13 @@ else:
                             if st.button("Save Log Entry", key=f"save_note_{sid}"):
                                 if new_note:
                                     note_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')}: {new_note}"
-                                    if "notes" not in db["seniors"][sid]: db["seniors"][sid]["notes"] = []
+                                    # Defensive initialization of notes list
+                                    if "notes" not in db["seniors"][sid]: 
+                                        db["seniors"][sid]["notes"] = []
                                     db["seniors"][sid]["notes"].insert(0, note_entry)
                                     save_data(db); st.rerun()
                         
-                        for n in sdata.get("notes", []):
-                            st.write(f"▪️ {n}")
-                    
-                    # --- THE ACTUAL PRO FEATURES ---
-                    col_v, col_n = st.columns(2)
-                    
-                    with col_v:
-                        st.markdown("### 📁 Document Vault")
-                        st.file_uploader("Upload Health Card / DNR (PDF/JPG)", key=f"vault_{sid}")
-                        if sdata.get("docs"):
-                            st.write("Current Docs:", sdata["docs"])
-                        else:
-                            st.caption("No documents uploaded yet.")
-
-                    with col_n:
-                        st.markdown("### 📝 Hand-off Notes")
-                        new_note = st.text_area("Daily Care Log / Hand-over", placeholder="e.g., Mom was a bit dizzy today...")
-                        if st.button("Save Note"):
-                            note_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')}: {new_note}"
-                            db["seniors"][sid]["notes"].insert(0, note_entry) # Newest first
-                            save_data(db); st.rerun()
-                        
+                        # Defensive check for notes
                         for n in sdata.get("notes", []):
                             st.write(f"▪️ {n}")
 
