@@ -30,7 +30,7 @@ db = load_data()
 if "session_user" not in st.session_state: st.session_state.session_user = None
 if "active_senior_id" not in st.session_state: st.session_state.active_senior_id = None
 
-# --- 1. AUTHENTICATION (Account Creation) ---
+# --- 1. AUTHENTICATION ---
 if not st.session_state.session_user:
     st.title("🛡️ CareSync Canada")
     tab1, tab2 = st.tabs(["🔐 Login", "📝 Create Account"])
@@ -59,7 +59,7 @@ if not st.session_state.session_user:
                         if cg_tag_email and cg_tag_email in db["links"]:
                             db["links"][cg_tag_email].append(s_id)
                     save_data(db); st.success("Account created! Log in above.")
-                else: st.error("Name, Email, and Mobile are required for account creation.")
+                else: st.error("Name, Email, and Mobile are required.")
 
     with tab1:
         l_email = st.text_input("Login Email")
@@ -76,7 +76,6 @@ else:
     if u["role"] == "Caregiver":
         st.sidebar.title(f"👨‍⚕️ {u['name']}")
         
-        # FIXED: REGISTERING A SENIOR MANUALLY (Email is Optional)
         with st.sidebar.expander("➕ Register New Senior"):
             with st.form("manual_reg"):
                 ns_name = st.text_input("Senior Name")
@@ -93,7 +92,6 @@ else:
                         save_data(db); st.rerun()
                     else: st.error("Name and Mobile are mandatory.")
 
-        # ROSTER
         st.title("📋 Care Roster")
         my_seniors = db["links"].get(u["email"], [])
         if not my_seniors: st.info("No seniors managed yet.")
@@ -132,73 +130,47 @@ else:
                         save_data(db); st.rerun()
                 if sdata["calendar"]: st.table(pd.DataFrame(sdata["calendar"]))
 
-with t_pay:
+            with t_pay:
                 st.subheader("💎 Premium Care Suite")
-                
-                # Check pro status safely
                 is_pro_active = sdata.get("is_pro", False)
 
                 if not is_pro_active:
-                    st.info("Features below are locked. Upgrade this senior to unlock professional tools.")
-                    st.markdown("🔒 **Document Vault** (DNR, Health Cards)")
-                    st.markdown("🔒 **Shift Hand-off Notes**")
-                    st.markdown("🔒 **SOS Family Blast & History**")
+                    st.info("Features below are locked. Upgrade to unlock professional tools.")
+                    st.markdown("🔒 **Document Vault**\n🔒 **Shift Hand-off Notes**\n🔒 **SOS History**")
                     if st.button("🚀 Upgrade to Pro", key=f"up_{sid}"):
                         db["seniors"][sid]["is_pro"] = True
-                        save_data(db)
-                        st.rerun()
+                        save_data(db); st.rerun()
                 else:
                     st.success("✅ Pro Features Unlocked")
-                    if st.button("Revert to Free Plan (Demo Mode)", key=f"rev_{sid}"):
+                    if st.button("Revert to Free Mode", key=f"rev_{sid}"):
                         db["seniors"][sid]["is_pro"] = False
-                        save_data(db)
-                        st.rerun()
+                        save_data(db); st.rerun()
                     
                     st.divider()
-                    
                     col_v, col_n = st.columns(2)
-                    
                     with col_v:
                         st.markdown("### 📁 Document Vault")
-                        st.file_uploader("Upload Health Card / DNR (PDF/JPG)", key=f"vault_up_{sid}")
-                        st.caption("Securely stored in senior's encrypted profile.")
-
+                        st.file_uploader("Upload Docs", key=f"v_up_{sid}")
                         st.divider()
                         st.markdown("### 🚨 SOS Alert History")
-                        # Safely get alerts list
                         senior_alerts = sdata.get("alerts", [])
                         if senior_alerts:
                             for alert in reversed(senior_alerts):
-                                st.error(f"EMERGENCY ALERT: {alert.get('time', 'Unknown Time')}")
-                        else:
-                            st.write("No emergency alerts recorded.")
+                                st.error(f"EMERGENCY ALERT: {alert.get('time')}")
+                        else: st.write("No alerts recorded.")
 
                     with col_n:
                         st.markdown("### 📝 Hand-off Notes")
-                        # Using a unique key for the text area to prevent Streamlit duplicate widget errors
-                        new_note = st.text_area("Daily Care Log", placeholder="Mom was a bit dizzy today...", key=f"txt_{sid}")
-                        if st.button("Save Log Entry", key=f"save_n_{sid}"):
+                        new_note = st.text_area("Daily Care Log", placeholder="Note here...", key=f"txt_{sid}")
+                        if st.button("Save Note", key=f"save_n_{sid}"):
                             if new_note:
-                                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
-                                note_entry = f"{timestamp}: {new_note}"
-                                # Initialize notes if missing
-                                if "notes" not in db["seniors"][sid]: 
-                                    db["seniors"][sid]["notes"] = []
+                                note_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M')}: {new_note}"
+                                if "notes" not in db["seniors"][sid]: db["seniors"][sid]["notes"] = []
                                 db["seniors"][sid]["notes"].insert(0, note_entry)
-                                save_data(db)
-                                st.rerun()
-                        
-                        # Display notes safely
-                        for n in sdata.get("notes", []):
-                            st.write(f"▪️ {n}")
+                                save_data(db); st.rerun()
+                        for n in sdata.get("notes", []): st.write(f"▪️ {n}")
 
-    # --- SENIOR VIEW (MANDATORY ALIGNMENT) ---
-    # This 'else' MUST be aligned vertically with 'if u["role"] == "Caregiver":'
-else:
-        sid = f"S-{u['email'].split('@')[0]}"
-        if sid in db["seniors"]:
-            # (Rest of your senior dashboard code starts here)
-    # --- SENIOR VIEW ---
+    # --- THE CRITICAL FIX: SENIOR VIEW ALIGNMENT ---
     else:
         sid = f"S-{u['email'].split('@')[0]}"
         if sid in db["seniors"]:
@@ -219,8 +191,10 @@ else:
 
             st.markdown("---")
             if st.button("🚨 SOS", type="primary", use_container_width=True):
-                db["seniors"][sid]["alerts"].append({"time": str(datetime.now())})
-                save_data(db); st.error("SOS Alerted!")
+                if "alerts" not in db["seniors"][sid]: db["seniors"][sid]["alerts"] = []
+                db["seniors"][sid]["alerts"].append({"time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+                save_data(db); st.error("SOS Alerted! Your caregiver has been notified.")
 
+    # --- GLOBAL LOGOUT ---
     if st.sidebar.button("Logout"):
         st.session_state.session_user = None; st.session_state.active_senior_id = None; st.rerun()
