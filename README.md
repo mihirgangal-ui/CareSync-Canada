@@ -23,6 +23,7 @@ State Management: Reactive session logic for real-time adherence tracking.
 Security: Decoupled data structures to ensure tenant isolation.
 
 📦 Installation & Deployment
+
 Clone the repo: git clone [protected-repository-url]
 
 Install dependencies: pip install -r requirements.txt
